@@ -4,7 +4,6 @@ const request = require("request");
 
 var sf = require('node-salesforce');
 const config = require('./config')
-console.log("config: " + JSON.stringify(config))
 var userObject = {};
 
 const sandboxRoot = config.salesforce.sandboxRoot
@@ -44,7 +43,6 @@ app.get('/', function(req, res){
             })
 })
 app.post('/getclientid', function(req, res){
-    console.log('getclientid')
     res.send(config.salesforce.client_id);
 }) 
 app.post('/settoken', function(req, res){
@@ -76,8 +74,6 @@ app.post('/getassets/', function (req, res) {
     assetIds+=")"
     conn.query("SELECT Id, SerialNumber, Adopted__c FROM Asset WHERE SerialNumber IN " + assetIds, function(err, result) {
         if (err) { return console.error('getAssets err: ' + err); }
-        console.log("total : " + result.totalSize);
-        console.log("fetched : " + result.records);
         res.send(result.records);
     });
 
@@ -88,136 +84,44 @@ app.post('/get_all_assets/', function (req, res) {
     
     conn.query("SELECT Id, Name, Description, location__c FROM Asset", function(err, result) {
         if (err) { return console.error('getAssets err: ' + err); }
-        console.log("total : " + result.totalSize);
-        console.log("fetched : " + result.records);
         res.send(result.records);
     });
 
 });
-app.post('/toggleadopt/', function (req, res) {
-    const info = req.body.info
-    conn.sobject("Asset").update({ 
-        Id : info.sfid
-      }, function(err, ret) {
-        if (err || !ret.success) { return console.error(err, ret); }
-        // ...
-      });
-      //
-      //
-      conn.sobject("Asset").update([
-        { Id : info.sfid, Adopted__c : info.Adopted }
-      ],
-      function(err, rets) {
-        if (err) { return console.error(err); }
-        console.log("rets: " + JSON.stringify(rets))
-        for (var i=0; i < rets.length; i++) {
-          if (rets[i].success) {
-            console.log("Updated Successfully : " + rets[i].id);
-          }
-        }
-      });
-    res.send('gotit');
-})
-app.post('/adoptaasset/', function (req, res) {
-    var asset = req.body.asset;
-    console.log('adoptaasset: ' + asset);
-    res.send(asset);
-})
-app.post('/unadoptaasset/', function (req, res) {
-    var asset = req.body.asset;
-    console.log('unadoptaasset: ' + asset);
-    res.send(asset);
-})
+app.post('/saveasset/', function (req, res) {
+    var request = require('request');
 
-app.post('/getchatterfeed', function(req, res){
+    var headers = {
+        'authorization': 'OAuth '+ conn.accessToken,
+        'content-type': 'application/json'
+    };
+
+    var dataString 
     
-    var sfid = req.body.sfId;
-    const options = {  
-        url: sandboxRoot+"services/data/v45.0/chatter/feeds/record/"+sfid+"/feed-elements",
-        method: 'GET',
-        headers: {
-            Authorization: 'OAuth '+ conn.accessToken
-        }
-    };
-    
-    request(options, function(err, res1, body) {  
-        let chatterInfo = []
-        const json = JSON.parse(body);
-        //console.log('request json: ' + JSON.stringify(json));
+    if (req.body.info.hasOwnProperty('Name')) {
+        dataString = `{"Name": "${req.body.info.Name}"}`;
+    }
+    else if (req.body.info.hasOwnProperty('Description')) {
+        dataString = `{"Description": "${req.body.info.Description}"}`;
+    }
 
-        json.elements.forEach(function(element){
-            
-            chatterInfo.push({
-                            "actor":{
-                                "displayName":element.actor.displayName, 
-                                "id":element.actor.id, 
-                                "photo": element.actor.photo.smallPhotoUrl
-                            }, 
-                            "message":{
-                                "id":element.id,
-                                "parentId":element.parent.id,
-                                "createDate":element.createDate,
-                                "text":element.body.text,
-                                "segments":element.body.messageSegments,
-                                "comments":element.capabilities.comments,
-                            }
-                        })
-        })
-        //console.log("chatterInfo")
-        //console.log(JSON.stringify(chatterInfo))
-        res.send(chatterInfo)
-    });
-})
-app.post('/addchatterpost', function (req, res) {
-    const msgBody = req.body.msgBody;
-    const options = {  
-        url: sandboxRoot+"services/data/v45.0/chatter/feed-elements?feedElementType=FeedItem&subjectId="+msgBody.subjectId+"&text="+msgBody.body.messageSegments[0].text,
-        method: 'POST',
-        headers: {
-            Authorization: 'OAuth '+ conn.accessToken
-        },
+    var options = {
+        url: sandboxRoot+"services/data/v53.0/sobjects/Asset/"+req.body.info.Id+".json",
+        method: 'PATCH',
+        headers: headers,
+        body: dataString
     };
-    request(options, function(err, res1, body) {  
-        const json = JSON.parse(body);
-        let chatterInfo = {}
 
-        chatterInfo.actor = {
-            "displayName":json.actor.displayName, 
-            "id":json.actor.id, 
-            "photo": json.actor.photo.smallPhotoUrl
+    function callback(error, response, body) {
+        if (!error && response.statusCode === 200 || response.statusCode === 204) {
+            res.send('success');
+        } else {
+            res.status(400).send({
+                message: 'This is an error!'
+            });
         }
-        chatterInfo.message={
-            "id":json.id,
-            "parentId":json.parent.id,
-            "createDate":json.createDate,
-            "text":json.body.text,
-            "segments":json.body.messageSegments,
-            "comments":json.capabilities.comments,
-        }
-                        
-        
-        res.send(chatterInfo)
-    });
-});
-app.post('/addchattercomment', function (req, res) {
-    const msgBody = req.body.msgBody;
-    const options = {  
-        url: sandboxRoot+"services/data/v45.0/chatter/feed-elements/"+msgBody.messageId+"/capabilities/comments/items?text="+msgBody.comment,
-        method: 'POST',
-        headers: {
-            Authorization: 'OAuth '+ conn.accessToken
-        },
-    };
-    request(options, function(err, res1, body) {  
-        const json = JSON.parse(body);
-        res.send(json)
-    });
-});
-
-app.post('/test/', function (req, res) {
-    console.log('userObject: ' + JSON.stringify(userObject));
-    console.log('userObject.userAccessToken: ' + userObject.userAccessToken);
-    res.send("esri_salesforce app works")
+    }
+    request(options, callback);
 })
 app.listen(config.app.port, function(){
     console.log('Server started on port ' + config.app.port);
